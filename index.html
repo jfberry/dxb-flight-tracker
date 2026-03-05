@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DXB Flight Disruption Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0a0e17;
+    color: #e0e6ed;
+    min-height: 100vh;
+  }
+  .header {
+    background: linear-gradient(135deg, #1a1f2e 0%, #0d1117 100%);
+    border-bottom: 1px solid #21262d;
+    padding: 20px 32px;
+  }
+  .header h1 { font-size: 22px; font-weight: 600; color: #f0f6fc; margin-bottom: 4px; }
+  .header .subtitle { font-size: 13px; color: #8b949e; }
+  .conflict-tag {
+    background: #da3633; color: #fff; padding: 2px 8px; border-radius: 10px;
+    font-size: 11px; font-weight: 600; margin-left: 8px; letter-spacing: 0.5px;
+  }
+  .dashboard {
+    max-width: 1400px; margin: 0 auto; padding: 24px;
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
+  }
+  .card {
+    background: #161b22; border: 1px solid #21262d; border-radius: 12px; padding: 20px;
+  }
+  .card-header {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
+    color: #8b949e; margin-bottom: 8px;
+  }
+  .card .big-number { font-size: 48px; font-weight: 700; line-height: 1.1; }
+  .card .label { font-size: 13px; color: #8b949e; margin-top: 4px; }
+  .airborne { color: #3fb950; }
+  .ground { color: #d29922; }
+  .total-col { color: #58a6ff; }
+  .danger { color: #f85149; }
+  .chart-row { grid-column: 1 / -1; }
+  .chart-container {
+    background: #161b22; border: 1px solid #21262d; border-radius: 12px; padding: 20px;
+  }
+  .chart-container h2 { font-size: 15px; font-weight: 600; margin-bottom: 16px; color: #f0f6fc; }
+  .chart-wrap { position: relative; height: 300px; }
+  .two-col { grid-column: span 2; }
+  .full-width { grid-column: 1 / -1; }
+  .flight-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .flight-table th {
+    text-align: left; padding: 8px 12px; border-bottom: 1px solid #21262d;
+    color: #8b949e; font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .flight-table td { padding: 8px 12px; border-bottom: 1px solid #21262d; }
+  .flight-table tr:last-child td { border-bottom: none; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .badge-airborne { background: #0d3117; color: #3fb950; }
+  .badge-ground { background: #2d1b00; color: #d29922; }
+  .comparison-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .comp-card {
+    background: #0d1117; border: 1px solid #21262d; border-radius: 8px;
+    padding: 14px; text-align: center;
+  }
+  .comp-card .airport-code { font-size: 18px; font-weight: 700; margin-bottom: 2px; }
+  .comp-card .airport-name { font-size: 11px; color: #8b949e; margin-bottom: 10px; }
+  .comp-card .comp-number { font-size: 32px; font-weight: 700; }
+  .comp-card .comp-label { font-size: 11px; color: #8b949e; }
+  .status-bar { display: flex; align-items: center; gap: 12px; margin-top: 16px; font-size: 12px; color: #8b949e; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #3fb950; animation: pulse 2s infinite; }
+  @geyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .status-dot.error { background: #f85149; animation: none; }
+  .info-banner {
+    grid-column: 1 / -1;
+    background: linear-gradient(135deg, #1a1207 0%, #261a00 100%);
+    border: 1px solid #d29922; border-radius: 12px; padding: 16px 20px;
+    font-size: 13px; line-height: 1.5; color: #d29922;
+  }
+  .info-banner strong { color: #e3b341; }
+  .controls { display: flex; align-items: center; gap: 12px; }
+  .controls button {
+    background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
+    padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; transition: background 0.15s;
+  }
+  .controls button:hover { background: #30363d; }
+  .controls button.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+  .controls .spacer { flex: 1; }
+  @media (max-width: 900px) {
+    .dashboard { grid-template-columns: repeat(2, 1fr); }
+    .two-col { grid-column: span 2; }
+    .comparison-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>DXB Airport Flight Disruption Tracker</h1>
+  <div class="subtitle">
+    Live data from adsb.lol API (100nm radius) &mdash; Auto-refreshes every 30s
+    <span class="conflict-tag">CONFLICT ZONE</span>
+  </div>
+</div>
+
+<div class="dashboard">
+
+  <div class="info-banner">
+    <strong>Context:</strong> Since Feb 28, 2026, US/Israeli strikes on Iran triggered Iranian retaliatory strikes across the Gulf.
+    UAE airspace is partially closed. Emirates has suspended scheduled flights. This tracker monitors the disruption and recovery in real-time via ADS-B data.
+  </div>
+
+  <!-- KPI Cards -->
+  <div class="card">
+    <div class="card-header">Airborne Aircraft</div>
+    <div class="big-number airborne" id="airborne-count">--</div>
+    <div class="label">within 100nm of DXB</div>
+  </div>
+  <div class="card">
+    <div class="card-header">On Ground</div>
+    <div class="big-number ground" id="ground-count">--</div>
+    <div class="label">parked aircraft (excl. vehicles)</div>
+  </div>
+  <div class="card">
+    <div class="card-header">Total Aircraft</div>
+    <div class="big-number total-col" id="total-count">--</div>
+    <div class="label">actual aircraft only</div>
+  </div>
+  <div class="card">
+    <div class="card-header">With Callsigns</div>
+    <div class="big-number" style="color:#bc8cff" id="callsign-count">--</div>
+    <div class="label">identified flights</div>
+  </div>
+
+  <!-- Disruption vs Normal -->
+  <div class="full-width">
+    <div class="chart-container">
+      <h2>Disruption vs Normal Operations</h2>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+        <div class="comp-card">
+          <div class="card-header" style="font-size:11px;margin-bottom:6px">NORMAL DAILY MOVEMENTS</div>
+          <div style="font-size:28px;font-weight:700;color:#8b949e">1,246</div>
+          <div class="comp-label">flights/day (2025 avg)</div>
+        </div>
+        <div class="comp-card">
+          <div class="card-header" style="font-size:11px;margin-bottom:6px">NORMAL PER HOUR</div>
+          <div style="font-size:28px;font-weight:700;color:#8b949e">~52</div>
+          <div class="comp-label">movements/hour</div>
+        </div>
+        <div class="comp-card">
+          <div class="card-header" style="font-size:11px;margin-bottom:6px">CURRENT AIRBORNE</div>
+          <div style="font-size:28px;font-weight:700;color:#f85149" id="disruption-current">--</div>
+          <div class="comp-label">within 100nm now</div>
+        </div>
+        <div class="comp-card">
+          <div class="card-header" style="font-size:11px;margin-bottom:6px">ESTIMATED DISRUPTION</div>
+          <div style="font-size:28px;font-weight:700;color:#f85149" id="disruption-pct">--</div>
+          <div class="comp-label">reduction from normal</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:#8b949e;line-height:1.6">
+        <strong style="color:#c9d1d9">Baselines:</strong> DXB handled 454,800 movements in 2025 (95.2M passengers), averaging 1,246/day.
+        At peak times, ~52 movements/hour means you'd normally expect 20-40+ airborne aircraft visible on ADS-B within 100nm at any given moment.
+        LHR (similar traffic volume) currently shows <span id="baseline-lhr" style="color:#58a6ff">--</span> airborne for reference.
+        <br><strong style="color:#c9d1d9">Source:</strong> Dubai Airports 2025 Annual Traffic Report. Disruption estimate uses LHR as a proxy for normal operations (DXB and LHR handle comparable traffic volumes).
+      </div>
+    </div>
+  </div>
+
+  <!-- Time Series Chart -->
+  <div class="chart-row">
+    <div class="chart-container">
+      <h2>Aircraft Count Over Time (DXB 100nm)</h2>
+      <div class="controls">
+        <button class="active" onclick="setView('all')" id="btn-all">All</button>
+        <button onclick="setView('airborne')" id="btn-airborne">Airborne Only</button>
+        <button onclick="setView('flights')" id="btn-flights">Identified Flights</button>
+        <div class="spacer"></div>
+        <div class="status-bar">
+          <div class="status-dot" id="status-dot"></div>
+          <span id="status-text">Connecting...</span>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="timeChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Comparison Section -->
+  <div class="two-col">
+    <div class="chart-container">
+      <h2>Airport Comparison (100nm radius)</h2>
+      <div class="comparison-grid">
+        <div class="comp-card">
+          <div class="airport-code danger">DXB</div>
+          <div class="airport-name">Dubai Intl</div>
+          <div class="comp-number danger" id="comp-dxb">--</div>
+          <div class="comp-label">airborne</div>
+        </div>
+        <div class="comp-card">
+          <div class="airport-code" style="color:#58a6ff">LHR</div>
+          <div class="airport-name">London Heathrow</div>
+          <div class="comp-number" style="color:#58a6ff" id="comp-lhr">--</div>
+          <div class="comp-label">airborne</div>
+        </div>
+        <div class="comp-card">
+          <div class="airport-code" style="color:#3fb950">SIN</div>
+          <div class="airport-name">Singapore Changi</div>
+          <div class="comp-number" style="color:#3fb950" id="comp-sin">--</div>
+          <div class="comp-label">airborne</div>
+        </div>
+      </div>
+      <div class="chart-wrap" style="height:220px; margin-top:16px;">
+        <canvas id="compChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Active Flights Table (aircraft only, no vehicles) -->
+  <div class="two-col">
+    <div class="chart-container">
+      <h2>Live Aircraft Near DXB (vehicles excluded)</h2>
+      <div style="max-height: 340px; overflow-y: auto;">
+        <table class="flight-table">
+          <thead>
+            <tr>
+              <th>Callsign</th>
+              <th>Type</th>
+              <th>Altitude</th>
+              <th>Speed (kt)</th>
+              <th>Distance (nm)</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="flight-tbody">
+            <tr><td colspan="6" style="text-align:center; color:#8b949e; padding:24px;">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Data Log -->
+  <div class="full-width">
+    <div class="chart-container">
+      <h2>Data Collection Log</h2>
+      <div style="max-height: 160px; overflow-y: auto; font-family: monospace; font-size: 12px; color: #8b949e;" id="log-area">
+        Initializing tracker...<br>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ---- Configuration ----
+const DXB = { lat: 25.2528, lon: 55.3644, code: 'DXB' };
+const LHR = { lat: 51.4700, lon: -0.4543, code: 'LHR' };
+const SIN = { lat: 1.3644, lon: 103.9915, code: 'SIN' };
+const RADIUS = 100;
+const POLL_INTERVAL = 30000;
+const API_BASE = 'https://api.adsb.lol/v2';
+
+// ---- State ----
+const history = { timestamps: [], airborne: [], ground: [], total: [], callsigns: [] };
+let currentView = 'all';
+let lastLhrAirborne = 0;
+
+// ---- Charts ----
+const timeChart = new Chart(document.getElementById('timeChart').getContext('2d'), {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [
+      { label: 'Airborne', data: [], borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,0.1)', fill: true, tension: 0.3, pointRadius: 3, borderWidth: 2 },
+      { label: 'On Ground (aircraft)', data: [], borderColor: '#d29922', backgroundColor: 'rgba(210,153,34,0.1)', fill: true, tension: 0.3, pointRadius: 3, borderWidth: 2 },
+      { label: 'Identified Flights', data: [], borderColor: '#bc8cff', backgroundColor: 'rgba(188,140,255,0.1)', fill: true, tension: 0.3, pointRadius: 3, borderWidth: 2 },
+      { label: 'Est. Normal (~LHR baseline)', data: [], borderColor: '#484f58', borderDash: [6, 4], borderWidth: 1.5, pointRadius: 0, fill: false, tension: 0 }
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { intersect: false, mode: 'index' },
+    plugins: { legend: { labels: { color: '#8b949e', usePointStyle: true, pointStyle: 'circle' } } },
+    scales: {
+      x: { ticks: { color: '#484f58', maxTicksLimit: 20 }, grid: { color: '#21262d' } },
+      y: { beginAtZero: true, ticks: { color: '#484f58' }, grid: { color: '#21262d' } }
+    }
+  }
+});
+
+const compChart = new Chart(document.getElementById('compChart').getContext('2d'), {
+  type: 'bar',
+  data: {
+    labels: ['DXB (Dubai)', 'LHR (London)', 'SIN (Singapore)'],
+    datasets: [{
+      label: 'Airborne Aircraft', data: [0, 0, 0],
+      backgroundColor: ['rgba(248,81,73,0.7)', 'rgba(88,166,255,0.7)', 'rgba(63,185,80,0.7)'],
+      borderColor: ['#f85149', '#58a6ff', '#3fb950'], borderWidth: 1, borderRadius: 6,
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { color: '#8b949e' }, grid: { display: false } },
+      y: { beginAtZero: true, ticks: { color: '#484f58' }, grid: { color: '#21262d' } }
+    }
+  }
+});
+
+// ---- API ----
+async function fetchAircraft(airport) {
+  const url = `${API_BASE}/lat/${airport.lat}/lon/${airport.lon}/dist/${RADIUS}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch(e) {
+    addLog(`Error fetching ${airport.code}: ${e.message}`);
+    return null;
+  }
+}
+
+// Analyze data â properly separates aircraft from ground vehicles (TWR/GND)
+function analyzeData(data) {
+  if (!data || !data.ac) return { airborne: 0, ground: 0, total: 0, callsigns: 0, groundVehicles: 0, flights: [] };
+  let airborne = 0, groundAircraft = 0, callsigns = 0, groundVehicles = 0;
+  const flights = [];
+
+  data.ac.forEach(a => {
+    const isGround = a.alt_baro === 'ground' || a.alt_baro === 0;
+    const isTwr = a.t === 'TWR' || a.t === 'GND' || a.r === 'TWR' || a.r === 'GND';
+
+    if (isTwr) { groundVehicles++; }
+    else if (isGround) { groundAircraft++; }
+    else { airborne++; }
+
+    const cs = a.flight ? a.flight.trim() : '';
+    if (cs && !isTwr) callsigns++;
+
+    flights.push({
+      callsign: cs || (isTwr ? (a.r || a.t || '---') : '---'),
+      type: a.t || '---',
+      alt: isGround ? 'GND' : (a.alt_baro || '---'),
+      speed: a.gs ? Math.round(a.gs) : '---',
+      dist: a.dst ? a.dst.toFixed(1) : '---',
+      isGround, isTwr
+    });
+  });
+
+  // Sort: airborne first, then ground aircraft, vehicles excluded from display
+  flights.sort((a, b) => {
+    if (a.isTwr && !b.isTwr) return 1;
+    if (!a.isTwr && b.isTwr) return -1;
+    if (a.isGround && !b.isGround) return 1;
+    if (!a.isGround && b.isGround) return -1;
+    return 0;
+  });
+
+  const actualAircraft = airborne + groundAircraft;
+  return { airborne, ground: groundAircraft, total: actualAircraft, callsigns, groundVehicles, flights };
+}
+
+function updateKPIs(s) {
+  document.getElementById('airborne-count').textContent = s.airborne;
+  document.getElementById('ground-count').textContent = s.ground;
+  document.getElementById('total-count').textContent = s.total;
+  document.getElementById('callsign-count').textContent = s.callsigns;
+}
+
+// Table shows only actual aircraft â TWR/GND vehicles are excluded
+function updateTable(flights) {
+  const tbody = document.getElementById('flight-tbody');
+  const aircraftOnly = flights.filter(f => !f.isTwr);
+
+  if (aircraftOnly.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#f85149; padding:24px;">No aircraft detected &mdash; airspace appears closed</td></tr>';
+    return;
+  }
+  tbody.innerHTML = aircraftOnly.map(f => {
+    const badge = f.isGround ? 'badge-ground' : 'badge-airborne';
+    const label = f.isGround ? 'GROUND' : 'AIRBORNE';
+    return `<tr>
+      <td style="font-weight:600">${f.callsign}</td>
+      <td>${f.type}</td>
+      <td>${f.alt === 'GND' ? '<span style="color:#d29922">GND</span>' : f.alt + ' ft'}</td>
+      <td>${f.speed}</td>
+      <td>${f.dist}</td>
+      <td><span class="badge ${badge}">${label}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function applyView() {
+  timeChart.data.labels = history.timestamps;
+  // Baseline line always visible
+  if (lastLhrAirborne > 0) {
+    timeChart.data.datasets[3].data = history.timestamps.map(() => Math.round(lastLhrAirborne * 0.95));
+    timeChart.data.datasets[3].hidden = false;
+  }
+  if (currentView === 'all') {
+    timeChart.data.datasets[0].data = history.airborne; timeChart.data.datasets[0].hidden = false;
+    timeChart.data.datasets[1].data = history.ground;   timeChart.data.datasets[1].hidden = false;
+    timeChart.data.datasets[2].data = history.callsigns; timeChart.data.datasets[2].hidden = false;
+  } else if (currentView === 'airborne') {
+    timeChart.data.datasets[0].data = history.airborne; timeChart.data.datasets[0].hidden = false;
+    timeChart.data.datasets[1].hidden = true; timeChart.data.datasets[2].hidden = true;
+  } else {
+    timeChart.data.datasets[2].data = history.callsigns; timeChart.data.datasets[2].hidden = false;
+    timeChart.data.datasets[0].hidden = true; timeChart.data.datasets[1].hidden = true;
+  }
+  timeChart.update('none');
+}
+
+function setView(v) {
+  currentView = v;
+  document.querySelectorAll('.controls button').forEach(b => b.classList.remove('active'));
+  document.getElementById('btn-' + v).classList.add('active');
+  applyView();
+}
+
+function addLog(msg) {
+  const area = document.getElementById('log-area');
+  const time = new Date().toLocaleTimeString();
+  area.innerHTML += `[${time}] ${msg}<br>`;
+  area.scrollTop = area.scrollHeight;
+}
+
+function setStatus(ok) {
+  const dot = document.getElementById('status-dot');
+  const text = document.getElementById('status-text');
+  dot.className = ok ? 'status-dot' : 'status-dot error';
+  text.textContent = ok ? `Live â polling every ${POLL_INTERVAL/1000}s` : 'Connection error';
+}
+
+// ---- Main Poll ----
+async function poll() {
+  try {
+    addLog('Fetching DXB + comparison airports...');
+    const [dxbData, lhrData, sinData] = await Promise.all([
+      fetchAircraft(DXB), fetchAircraft(LHR), fetchAircraft(SIN)
+    ]);
+    const dxb = analyzeData(dxbData);
+    const lhr = analyzeData(lhrData);
+    const sin = analyzeData(sinData);
+
+    // KPIs
+    updateKPIs(dxb);
+    updateTable(dxb.flights);
+
+    // Comparison
+    document.getElementById('comp-dxb').textContent = dxb.airborne;
+    document.getElementById('comp-lhr').textContent = lhr.airborne;
+    document.getElementById('comp-sin').textContent = sin.airborne;
+    compChart.data.datasets[0].data = [dxb.airborne, lhr.airborne, sin.airborne];
+    compChart.update('none');
+    lastLhrAirborne = lhr.airborne;
+
+    // Disruption calculation (DXB normal â LHR Ã 0.95 based on comparable annual traffic)
+    const estimatedNormal = Math.round(lhr.airborne * 0.95);
+    const disruption = estimatedNormal > 0 ? Math.round((1 - dxb.airborne / estimatedNormal) * 100) : 100;
+    const dcEl = document.getElementById('disruption-current');
+    const dpEl = document.getElementById('disruption-pct');
+    const blEl = document.getElementById('baseline-lhr');
+    if (dcEl) dcEl.textContent = dxb.airborne;
+    if (dpEl) {
+      dpEl.textContent = disruption + '%';
+      dpEl.style.color = disruption > 90 ? '#f85149' : disruption > 50 ? '#d29922' : '#3fb950';
+    }
+    if (blEl) blEl.textContent = lhr.airborne;
+
+    // Time series
+    const label = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    history.timestamps.push(label);
+    history.airborne.push(dxb.airborne);
+    history.ground.push(dxb.ground);
+    history.total.push(dxb.total);
+    history.callsigns.push(dxb.callsigns);
+    if (history.timestamps.length > 200) {
+      history.timestamps.shift(); history.airborne.shift();
+      history.ground.shift(); history.total.shift(); history.callsigns.shift();
+    }
+    applyView();
+
+    setStatus(true);
+    addLog(`DXB: ${dxb.airborne} airborne, ${dxb.ground} ground aircraft, ${dxb.groundVehicles} vehicles excluded (est. normal: ~${estimatedNormal}, disruption: ${disruption}%) | LHR: ${lhr.airborne} | SIN: ${sin.airborne}`);
+  } catch(e) {
+    addLog(`Poll error: ${e.message}`);
+    setStatus(false);
+  }
+}
+
+// ---- Start ----
+addLog('DXB Flight Disruption Tracker initialized');
+addLog('Monitoring 100nm radius around DXB â ground vehicles (TWR/GND) excluded from counts');
+addLog('Comparison airports: LHR (London), SIN (Singapore)');
+poll();
+setInterval(poll, POLL_INTERVAL);
+</script>
+
+</body>
+</html>
