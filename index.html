@@ -313,14 +313,22 @@ const compChart = new Chart(document.getElementById('compChart').getContext('2d'
 
 // ---- API ----
 async function fetchAircraft(airport) {
-  const apiUrl = `${API_BASE}/lat/${airport.lat}/lon/${airport.lon}/dist/${RADIUS}`;
-  const url = `https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}`;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } catch(e) {
-    addLog(`Error fetching ${airport.code}: ${e.message}`);
+    const apiUrl = `${API_BASE}/lat/${airport.lat}/lon/${airport.lon}/dist/${RADIUS}`;
+    const proxies = [
+      url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+      url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+      url => url
+    ];
+    for (const makeUrl of proxies) {
+      try {
+        const res = await fetch(makeUrl(apiUrl));
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.json();
+      } catch(e) {
+        continue;
+      }
+    }
+    addLog(`Error fetching ${airport.code}: all proxies failed`);
     return null;
   }
 }
@@ -504,4 +512,3 @@ setInterval(poll, POLL_INTERVAL);
 
 </body>
 </html>
-allorigins
