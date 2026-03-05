@@ -313,7 +313,8 @@ const compChart = new Chart(document.getElementById('compChart').getContext('2d'
 
 // ---- API ----
 async function fetchAircraft(airport) {
-  const url = `${API_BASE}/lat/${airport.lat}/lon/${airport.lon}/dist/${RADIUS}`;
+  const apiUrl = `${API_BASE}/lat/${airport.lat}/lon/${airport.lon}/dist/${RADIUS}`;
+  const url = `https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}`;
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -503,3 +504,4 @@ setInterval(poll, POLL_INTERVAL);
 
 </body>
 </html>
+allorigins
