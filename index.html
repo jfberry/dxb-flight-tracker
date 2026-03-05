@@ -329,11 +329,7 @@ const compChart = new Chart(document.getElementById('compChart').getContext('2d'
       addLog(`Error fetching ${airport.code}: all proxies failed`);
       return null;
     }
-    }
-    addLog(`Error fetching ${airport.code}: all proxies failed`);
-    return null;
-  }
-}
+
 
 // Analyze data â properly separates aircraft from ground vehicles (TWR/GND)
 function analyzeData(data) {
